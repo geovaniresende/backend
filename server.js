@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3'); // Mudança de sqlite3 para better-sqlite3
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -12,26 +12,22 @@ const SECRET_KEY = 'yourSecretKey'; // Use um segredo forte em produção
 app.use(bodyParser.json()); // garante que o JSON seja lido corretamente
 app.use(cors());
 
-// Conexão com o banco de dados SQLite
-const db = new sqlite3.Database('./database.db', (err) => {
-  if (err) {
-    console.error('Erro ao conectar ao banco de dados:', err.message);
-  } else {
-    console.log('Conectado ao banco de dados SQLite.');
-  }
-});
+// Conexão com o banco de dados SQLite usando better-sqlite3
+const db = new Database('./database.db', { verbose: console.log });
+
+console.log('Conectado ao banco de dados SQLite.');
 
 // Criação das tabelas se não existirem
-db.run(`
+db.prepare(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL
   );
-`);
+`).run();
 
-db.run(`
+db.prepare(`
   CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -41,7 +37,7 @@ db.run(`
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
-`);
+`).run();
 
 // Função para gerar token JWT
 const generateToken = (user) => {
@@ -72,21 +68,14 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ message: 'Nome, e-mail e senha são obrigatórios.' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao verificar usuário no banco.' });
-    }
-    if (user) {
-      return res.status(400).json({ message: 'Usuário já existe.' });
-    }
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (user) {
+    return res.status(400).json({ message: 'Usuário já existe.' });
+  }
 
-    db.run('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, password], function (err) {
-      if (err) {
-        return res.status(500).json({ message: 'Erro ao registrar usuário.' });
-      }
-      res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: this.lastID });
-    });
-  });
+  const stmt = db.prepare('INSERT INTO users (name, email, password) VALUES (?, ?, ?)');
+  const result = stmt.run(name, email, password);
+  res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: result.lastInsertRowid });
 });
 
 // Rota de login
@@ -97,17 +86,13 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao verificar usuário no banco.' });
-    }
-    if (!user || user.password !== password) {
-      return res.status(400).json({ message: 'Credenciais inválidas.' });
-    }
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (!user || user.password !== password) {
+    return res.status(400).json({ message: 'Credenciais inválidas.' });
+  }
 
-    const token = generateToken(user);
-    res.json({ message: 'Login bem-sucedido.', token });
-  });
+  const token = generateToken(user);
+  res.json({ message: 'Login bem-sucedido.', token });
 });
 
 // Rota para obter informações do usuário
@@ -118,15 +103,11 @@ app.get('/api/users/:id', verifyToken, (req, res) => {
     return res.status(403).json({ message: 'Acesso negado.' });
   }
 
-  db.get('SELECT id, name, email FROM users WHERE id = ?', [userId], (err, user) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao buscar usuário.' });
-    }
-    if (!user) {
-      return res.status(404).json({ message: 'Usuário não encontrado.' });
-    }
-    res.json(user);
-  });
+  const user = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    return res.status(404).json({ message: 'Usuário não encontrado.' });
+  }
+  res.json(user);
 });
 
 // Rota para atualizar informações do usuário
@@ -138,12 +119,9 @@ app.put('/api/users/:id', verifyToken, (req, res) => {
     return res.status(403).json({ message: 'Acesso negado.' });
   }
 
-  db.run('UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?', [name, email, password, userId], function (err) {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao atualizar usuário.' });
-    }
-    res.json({ message: 'Usuário atualizado com sucesso.' });
-  });
+  const stmt = db.prepare('UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?');
+  stmt.run(name, email, password, userId);
+  res.json({ message: 'Usuário atualizado com sucesso.' });
 });
 
 // Rota para criar uma nova notificação
@@ -154,32 +132,21 @@ app.post('/api/notifications', verifyToken, (req, res) => {
     return res.status(400).json({ message: 'Placa e ocorrência são obrigatórios.' });
   }
 
-  db.run('INSERT INTO notifications (user_id, plate, occurrence) VALUES (?, ?, ?)', [req.user.id, plate, occurrence], function (err) {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao criar notificação.' });
-    }
-    res.status(201).json({ message: 'Notificação criada com sucesso!', notificationId: this.lastID });
-  });
+  const stmt = db.prepare('INSERT INTO notifications (user_id, plate, occurrence) VALUES (?, ?, ?)');
+  const result = stmt.run(req.user.id, plate, occurrence);
+  res.status(201).json({ message: 'Notificação criada com sucesso!', notificationId: result.lastInsertRowid });
 });
 
 // Rota para listar notificações enviadas pelo usuário
 app.get('/api/notifications/sent', verifyToken, (req, res) => {
-  db.all('SELECT * FROM notifications WHERE user_id = ?', [req.user.id], (err, notifications) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao listar notificações.' });
-    }
-    res.json(notifications);
-  });
+  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ?').all(req.user.id);
+  res.json(notifications);
 });
 
 // Rota para listar notificações recebidas (simulando aqui com notificações de todos os usuários)
 app.get('/api/notifications/received', verifyToken, (req, res) => {
-  db.all('SELECT * FROM notifications WHERE user_id != ?', [req.user.id], (err, notifications) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao listar notificações recebidas.' });
-    }
-    res.json(notifications);
-  });
+  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id != ?').all(req.user.id);
+  res.json(notifications);
 });
 
 // Inicia o servidor
