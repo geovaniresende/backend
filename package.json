@@ -4,10 +4,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "preinstall": "apt-get update && apt-get install -y build-essential python",
-    "build": "npm install --build-from-source",
-    "install": "npm install",
-    "rebuild": "npm rebuild sqlite3",
+    "preinstall": "apt-get update && apt-get install -y build-essential python",  
+    "build": "npm install --build-from-source",  
     "start": "node server.js"
   },
   "keywords": [],
@@ -26,7 +24,7 @@
     "node-gyp": "^11.0.0"
   },
   "engines": {
-    "node": "16.x"
+    "node": "16.x"  
   }
+  
 }
-
