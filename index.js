@@ -1,12 +1,13 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose(); // Mudança para SQLite
+const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 4000; // Alteração para porta 4000
+const PORT = process.env.PORT || 4000;
 const SECRET_KEY = 'yourSecretKey'; // Use um segredo forte em produção
 
 // Middleware
@@ -84,11 +85,15 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(400).json({ message: 'Usuário já existe.' });
     }
 
-    db.run('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, password], function (err) {
-      if (err) {
-        return res.status(500).json({ message: 'Erro ao registrar usuário.' });
-      }
-      res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: this.lastID });
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+      if (err) return res.status(500).json({ message: 'Erro ao processar senha.' });
+
+      db.run('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, hashedPassword], function (err) {
+        if (err) {
+          return res.status(500).json({ message: 'Erro ao registrar usuário.' });
+        }
+        res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: this.lastID });
+      });
     });
   });
 });
@@ -102,12 +107,19 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
-    if (!row || row.password !== password) {
+    if (!row) {
       return res.status(400).json({ message: 'Credenciais inválidas.' });
     }
 
-    const token = generateToken(row);
-    res.json({ message: 'Login bem-sucedido.', token });
+    bcrypt.compare(password, row.password, (err, isMatch) => {
+      if (err) return res.status(500).json({ message: 'Erro ao verificar senha.' });
+      if (!isMatch) {
+        return res.status(400).json({ message: 'Credenciais inválidas.' });
+      }
+
+      const token = generateToken(row);
+      res.json({ message: 'Login bem-sucedido.', token });
+    });
   });
 });
 
