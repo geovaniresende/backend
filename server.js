@@ -1,15 +1,13 @@
-require('dotenv').config();
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('sqlite3').verbose(); // Mudança para SQLite
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 4000;
-const SECRET_KEY = process.env.SECRET_KEY || 'yourSecretKey';
+const PORT = process.env.PORT || 4000; // Alteração para porta 4000
+const SECRET_KEY = 'yourSecretKey'; // Use um segredo forte em produção
 
 // Middleware
 app.use(bodyParser.json());
@@ -59,13 +57,10 @@ const generateToken = (user) => {
 
 // Middleware para verificar o token JWT
 const verifyToken = (req, res, next) => {
-  const authHeader = req.header('Authorization');
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = req.header('Authorization');
+  if (!token) {
     return res.status(403).json({ message: 'Acesso negado.' });
   }
-
-  const token = authHeader.split(' ')[1];
 
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) {
@@ -77,43 +72,37 @@ const verifyToken = (req, res, next) => {
 };
 
 // Rota de registro de usuário
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Nome, e-mail e senha são obrigatórios.' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, row) => {
+  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
     if (row) {
       return res.status(400).json({ message: 'Usuário já existe.' });
     }
 
-    try {
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      db.run('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, hashedPassword], function (err) {
-        if (err) {
-          return res.status(500).json({ message: 'Erro ao registrar usuário.' });
-        }
-        res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: this.lastID });
-      });
-    } catch (error) {
-      res.status(500).json({ message: 'Erro ao processar a senha.' });
-    }
+    db.run('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, password], function (err) {
+      if (err) {
+        return res.status(500).json({ message: 'Erro ao registrar usuário.' });
+      }
+      res.status(201).json({ message: 'Usuário registrado com sucesso!', userId: this.lastID });
+    });
   });
 });
 
 // Rota de login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, row) => {
-    if (!row || !(await bcrypt.compare(password, row.password))) {
+  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+    if (!row || row.password !== password) {
       return res.status(400).json({ message: 'Credenciais inválidas.' });
     }
 
@@ -151,16 +140,6 @@ app.post('/api/notifications', verifyToken, (req, res) => {
       return res.status(500).json({ message: 'Erro ao criar notificação.' });
     }
     res.status(201).json({ message: 'Notificação criada com sucesso!', notificationId: this.lastID });
-  });
-});
-
-// Rota para listar notificações do usuário autenticado
-app.get('/api/notifications', verifyToken, (req, res) => {
-  db.all('SELECT * FROM notifications WHERE user_id = ?', [req.user.id], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ message: 'Erro ao buscar notificações.' });
-    }
-    res.json(rows);
   });
 });
 
